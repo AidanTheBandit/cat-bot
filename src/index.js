@@ -59,21 +59,21 @@ async function writeSubscriberList(subscribers) {
   }
 }
 
-async function addSubscriber(username) {
+async function addSubscriber(userId) {
   const subscribers = await readSubscriberList();
-  if (!subscribers.includes(username)) {
-    subscribers.push(username);
+  if (!subscribers.includes(userId)) {
+    subscribers.push(userId);
     await writeSubscriberList(subscribers);
-    console.log(`Added ${username} to subscribers`);
+    console.log(`Added user ${userId} to subscribers`);
   }
 }
 
-async function removeSubscriber(username) {
+async function removeSubscriber(userId) {
   const subscribers = await readSubscriberList();
-  const updatedSubscribers = subscribers.filter(sub => sub !== username);
+  const updatedSubscribers = subscribers.filter(sub => sub !== userId);
   if (subscribers.length !== updatedSubscribers.length) {
     await writeSubscriberList(updatedSubscribers);
-    console.log(`Removed ${username} from subscribers`);
+    console.log(`Removed user ${userId} from subscribers`);
   }
 }
 
@@ -174,9 +174,10 @@ async function sendDirectMessage(userId, message) {
 
 async function handleMentionNotification(notification) {
   const mentionText = notification.note.text.toLowerCase();
+  const userId = notification.user.id;
   const username = notification.user.username;
 
-  console.log(`Processing mention from ${username}: "${mentionText}"`);
+  console.log(`Processing mention from ${username} (ID: ${userId}): "${mentionText}"`);
 
   // Extract the actual command by removing the bot's mention
   const botUsername = 'gimmecats'; // Replace with your bot's actual username
@@ -186,7 +187,7 @@ async function handleMentionNotification(notification) {
 
   if (command.includes('subscribe') || command.includes('sub') || command.includes('join')) {
     console.log('Handling subscription request');
-    await addSubscriber(username);
+    await addSubscriber(userId);
     await barkleAxios.post('notes/create', {
       text: `@${username} You've been subscribed to hourly cat posts!`,
       visibility: 'public',
@@ -195,7 +196,7 @@ async function handleMentionNotification(notification) {
     });
   } else if (command.includes('unsubscribe') || command.includes('unsub') || command.includes('leave')) {
     console.log('Handling unsubscription request');
-    await removeSubscriber(username);
+    await removeSubscriber(userId);
     await barkleAxios.post('notes/create', {
       text: `@${username} You've been unsubscribed from hourly cat posts.`,
       visibility: 'public',
@@ -269,8 +270,8 @@ async function postHourlyCat() {
       const noteUrl = `https://barkle.chat/notes/${noteId}`;
       const message = `Here's your subscribed cat post! ${noteUrl}`;
       
-      for (const subscriber of subscribers) {
-        await sendDirectMessage(subscriber, message);
+      for (const subscriberId of subscribers) {
+        await sendDirectMessage(subscriberId, message);
         // Add a delay of 1 second between messages
         await delay(1000);
       }
