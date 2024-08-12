@@ -4,6 +4,7 @@ import cron from 'node-cron';
 import FormData from 'form-data';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const CAT_API_URL = 'https://api.thecatapi.com/v1/images/search';
 const BARKLE_API_URL = 'https://barkle.chat/api';
 const CHANNEL_ID = process.env.CHANNEL_ID;
+const SUBSCRIBER_LIST_FILE = path.join(__dirname, 'list.txt');
 
 const catApiKey = process.env.CAT_API_KEY;
 const barkleApiToken = process.env.BARKLE_API_TOKEN;
@@ -29,6 +31,47 @@ const barkleAxios = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+async function readSubscriberList() {
+  try {
+    const data = await fs.readFile(SUBSCRIBER_LIST_FILE, 'utf8');
+    return data.split('\n').filter(line => line.trim() !== '');
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      // File doesn't exist, create it
+      await fs.writeFile(SUBSCRIBER_LIST_FILE, '');
+      return [];
+    }
+    console.error('Error reading subscriber list:', error);
+    return [];
+  }
+}
+
+async function writeSubscriberList(subscribers) {
+  try {
+    await fs.writeFile(SUBSCRIBER_LIST_FILE, subscribers.join('\n'));
+  } catch (error) {
+    console.error('Error writing subscriber list:', error);
+  }
+}
+
+async function addSubscriber(username) {
+  const subscribers = await readSubscriberList();
+  if (!subscribers.includes(username)) {
+    subscribers.push(username);
+    await writeSubscriberList(subscribers);
+    console.log(`Added ${username} to subscribers`);
+  }
+}
+
+async function removeSubscriber(username) {
+  const subscribers = await readSubscriberList();
+  const updatedSubscribers = subscribers.filter(sub => sub !== username);
+  if (subscribers.length !== updatedSubscribers.length) {
+    await writeSubscriberList(updatedSubscribers);
+    console.log(`Removed ${username} from subscribers`);
+  }
+}
 
 async function getCatImage() {
   try {
@@ -75,37 +118,91 @@ async function uploadImageToBarkle(imageUrl) {
   }
 }
 
-async function postToBarkle(imageUrl, replyId = null) {
+async function postToBarkle(imageUrl, replyId = null, text = null) {
   try {
-    const fileId = await uploadImageToBarkle(imageUrl);
-    if (!fileId) throw new Error('Failed to upload image');
-
     const noteParams = {
-      text: 'Here\'s your cat!',
-      fileIds: [fileId],
+      text: text || 'Here\'s your cat!',
       visibility: 'public',
       channelId: CHANNEL_ID
     };
+
+    if (imageUrl) {
+      const fileId = await uploadImageToBarkle(imageUrl);
+      if (!fileId) throw new Error('Failed to upload image');
+      noteParams.fileIds = [fileId];
+    }
 
     if (replyId) {
       noteParams.replyId = replyId;
     }
 
-    await barkleAxios.post('notes/create', noteParams);
-    console.log('Posted cat image to Barkle');
+    const response = await barkleAxios.post('notes/create', noteParams);
+    console.log('Posted to Barkle');
+    return response;
   } catch (error) {
     console.error('Error posting to Barkle:', error);
   }
 }
 
-async function handleMentionNotification(notification) {
-  if (notification.type === 'mention' && notification.note.text.toLowerCase().includes('gimme')) {
-    const catImageUrl = await getCatImage();
-    if (catImageUrl) {
-      await postToBarkle(catImageUrl, notification.note.id);
-    }
+async function getRandomText() {
+  try {
+    const data = await fs.readFile(path.join(__dirname, 'texts.txt'), 'utf8');
+    const lines = data.split('\n').filter(line => line.trim() !== '');
+    return lines[Math.floor(Math.random() * lines.length)];
+  } catch (error) {
+    console.error('Error reading random text:', error);
+    return 'Here\'s your cat!';
   }
 }
+
+async function handleMentionNotification(notification) {
+    const mentionText = notification.note.text.toLowerCase();
+    const username = notification.user.username;
+  
+    console.log(`Processing mention from ${username}: "${mentionText}"`);
+  
+    // Extract the actual command by removing the bot's mention
+    const botUsername = 'gimmecats'; // Replace with your bot's actual username
+    const command = mentionText.replace(`@${botUsername}`, '').trim();
+  
+    console.log(`Extracted command: "${command}"`);
+  
+    if (command.includes('subscribe') || command.includes('sub') || command.includes('join')) {
+      console.log('Handling subscription request');
+      await addSubscriber(username);
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You've been subscribed to hourly cat posts!`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id
+      });
+    } else if (command.includes('unsubscribe') || command.includes('unsub') || command.includes('leave')) {
+      console.log('Handling unsubscription request');
+      await removeSubscriber(username);
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You've been unsubscribed from hourly cat posts.`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id
+      });
+    } else if (command.includes('gimme')) {
+      console.log('Handling "gimme" request');
+      const catImageUrl = await getCatImage();
+      if (catImageUrl) {
+        const randomText = await getRandomText();
+        await postToBarkle(catImageUrl, notification.note.id, `@${username} ${randomText}`);
+      }
+    } else {
+      console.log('No specific action taken for this mention');
+      // Optionally, you can respond with help text here
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You can use 'subscribe' to get hourly cats, 'unsubscribe' to stop, or 'gimme' for an immediate cat!`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id
+      });
+    }
+  }
 
 async function checkNotifications() {
   try {
@@ -131,13 +228,23 @@ async function checkNotifications() {
   }
 }
 
-// Schedule hourly cat post
-cron.schedule('0 * * * *', async () => {
+async function postHourlyCat() {
   const catImageUrl = await getCatImage();
   if (catImageUrl) {
-    await postToBarkle(catImageUrl);
+    const randomText = await getRandomText();
+    const response = await postToBarkle(catImageUrl, null, randomText);
+    
+    // Mention subscribers in a reply
+    const subscribers = await readSubscriberList();
+    if (subscribers.length > 0) {
+      const mentionText = subscribers.map(sub => `@${sub}`).join(' ') + ' Here\'s your subscribed cat post!';
+      await postToBarkle(null, response.data.id, mentionText);
+    }
   }
-});
+}
+
+// Schedule hourly cat post
+cron.schedule('0 * * * *', postHourlyCat);
 
 // Check for notifications every 15 seconds
 setInterval(checkNotifications, 15000);
