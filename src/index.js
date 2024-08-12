@@ -250,3 +250,5 @@ cron.schedule('0 * * * *', postHourlyCat);
 setInterval(checkNotifications, 15000);
 
 console.log('Cat Barkle Bot is running!');
+
+postHourlyCat();
