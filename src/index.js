@@ -229,17 +229,27 @@ async function checkNotifications() {
 }
 
 async function postHourlyCat() {
+  console.log('Posting hourly cat');
   const catImageUrl = await getCatImage();
   if (catImageUrl) {
     const randomText = await getRandomText();
     const response = await postToBarkle(catImageUrl, null, randomText);
     
-    // Mention subscribers in a reply
-    const subscribers = await readSubscriberList();
-    if (subscribers.length > 0) {
-      const mentionText = subscribers.map(sub => `@${sub}`).join(' ') + ' Here\'s your subscribed cat post!';
-      await postToBarkle(null, response.data.id, mentionText);
+    if (response && response.data && response.data.id) {
+      // Mention subscribers in a reply
+      const subscribers = await readSubscriberList();
+      if (subscribers.length > 0) {
+        const mentionText = subscribers.map(sub => `@${sub}`).join(' ') + ' Here\'s your subscribed cat post!';
+        await postToBarkle(null, response.data.id, mentionText);
+        console.log(`Mentioned ${subscribers.length} subscribers in a reply`);
+      } else {
+        console.log('No subscribers to mention');
+      }
+    } else {
+      console.error('Failed to get note ID from the cat post response');
     }
+  } else {
+    console.error('Failed to get a cat image URL');
   }
 }
 
