@@ -138,10 +138,10 @@ async function postToBarkle(imageUrl, replyId = null, text = null) {
 
     const response = await barkleAxios.post('notes/create', noteParams);
     console.log('Posted to Barkle:', response.data);
-    return response.data;  // Return just the data part of the response
+    return response.data;
   } catch (error) {
     console.error('Error posting to Barkle:', error);
-    throw error;  // Re-throw the error to be caught by the caller
+    throw error;
   }
 }
 
@@ -153,6 +153,18 @@ async function getRandomText() {
   } catch (error) {
     console.error('Error reading random text:', error);
     return 'Here\'s your cat!';
+  }
+}
+
+async function sendDirectMessage(userId, message) {
+  try {
+    await barkleAxios.post('messaging/messages/create', {
+      userId: userId,
+      text: message
+    });
+    console.log(`Sent direct message to user ${userId}`);
+  } catch (error) {
+    console.error(`Error sending direct message to user ${userId}:`, error);
   }
 }
 
@@ -240,20 +252,25 @@ async function postHourlyCat() {
     const randomText = await getRandomText();
     const postResponse = await postToBarkle(catImageUrl, null, randomText);
     
-    if (!postResponse || !postResponse.id) {
+    if (!postResponse || !postResponse.createdNote || !postResponse.createdNote.id) {
       throw new Error('Failed to get note ID from the cat post response');
     }
 
-    console.log('Cat post successful, ID:', postResponse.id);
+    const noteId = postResponse.createdNote.id;
+    console.log('Cat post successful, ID:', noteId);
 
-    // Mention subscribers in a reply
+    // Send direct messages to subscribers
     const subscribers = await readSubscriberList();
     if (subscribers.length > 0) {
-      const mentionText = subscribers.map(sub => `@${sub}`).join(' ') + ' Here\'s your subscribed cat post!';
-      await postToBarkle(null, postResponse.id, mentionText);
-      console.log(`Mentioned ${subscribers.length} subscribers in a reply`);
+      const noteUrl = `https://barkle.chat/notes/${noteId}`;
+      const message = `Here's your subscribed cat post! ${noteUrl}`;
+      
+      for (const subscriber of subscribers) {
+        await sendDirectMessage(subscriber, message);
+      }
+      console.log(`Sent direct messages to ${subscribers.length} subscribers`);
     } else {
-      console.log('No subscribers to mention');
+      console.log('No subscribers to notify');
     }
   } catch (error) {
     console.error('Error in postHourlyCat:', error);
