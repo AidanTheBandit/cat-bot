@@ -32,6 +32,10 @@ const barkleAxios = axios.create({
   },
 });
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function readSubscriberList() {
   try {
     const data = await fs.readFile(SUBSCRIBER_LIST_FILE, 'utf8');
@@ -164,7 +168,7 @@ async function sendDirectMessage(userId, message) {
     });
     console.log(`Sent direct message to user ${userId}`);
   } catch (error) {
-    console.error(`Error sending direct message to user ${userId}:`, error);
+    console.error(`Error sending direct message to user ${userId}:`, error.response?.data || error.message);
   }
 }
 
@@ -267,6 +271,8 @@ async function postHourlyCat() {
       
       for (const subscriber of subscribers) {
         await sendDirectMessage(subscriber, message);
+        // Add a delay of 1 second between messages
+        await delay(1000);
       }
       console.log(`Sent direct messages to ${subscribers.length} subscribers`);
     } else {
