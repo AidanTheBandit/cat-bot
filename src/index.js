@@ -19,6 +19,8 @@ const SUBSCRIBER_LIST_FILE = path.join(__dirname, 'list.txt');
 const catApiKey = process.env.CAT_API_KEY;
 const barkleApiToken = process.env.BARKLE_API_TOKEN;
 
+const BarkleFor = "Nary <3";
+
 if (!barkleApiToken) {
   console.error('BARKLE_API_TOKEN is not set in the .env file');
   process.exit(1);
@@ -31,10 +33,6 @@ const barkleAxios = axios.create({
     'Content-Type': 'application/json',
   },
 });
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 async function readSubscriberList() {
   try {
@@ -59,21 +57,21 @@ async function writeSubscriberList(subscribers) {
   }
 }
 
-async function addSubscriber(userId) {
+async function addSubscriber(username) {
   const subscribers = await readSubscriberList();
-  if (!subscribers.includes(userId)) {
-    subscribers.push(userId);
+  if (!subscribers.includes(username)) {
+    subscribers.push(username);
     await writeSubscriberList(subscribers);
-    console.log(`Added user ${userId} to subscribers`);
+    console.log(`Added ${username} to subscribers`);
   }
 }
 
-async function removeSubscriber(userId) {
+async function removeSubscriber(username) {
   const subscribers = await readSubscriberList();
-  const updatedSubscribers = subscribers.filter(sub => sub !== userId);
+  const updatedSubscribers = subscribers.filter(sub => sub !== username);
   if (subscribers.length !== updatedSubscribers.length) {
     await writeSubscriberList(updatedSubscribers);
-    console.log(`Removed user ${userId} from subscribers`);
+    console.log(`Removed ${username} from subscribers`);
   }
 }
 
@@ -127,7 +125,8 @@ async function postToBarkle(imageUrl, replyId = null, text = null) {
     const noteParams = {
       text: text || 'Here\'s your cat!',
       visibility: 'public',
-      channelId: CHANNEL_ID
+      channelId: CHANNEL_ID,
+      barkleFor: BarkleFor
     };
 
     if (imageUrl) {
@@ -141,11 +140,10 @@ async function postToBarkle(imageUrl, replyId = null, text = null) {
     }
 
     const response = await barkleAxios.post('notes/create', noteParams);
-    console.log('Posted to Barkle:', response.data);
-    return response.data;
+    console.log('Posted to Barkle');
+    return response;
   } catch (error) {
     console.error('Error posting to Barkle:', error);
-    throw error;
   }
 }
 
@@ -160,67 +158,56 @@ async function getRandomText() {
   }
 }
 
-async function sendDirectMessage(userId, message) {
-  try {
-    await barkleAxios.post('messaging/messages/create', {
-      userId: userId,
-      text: message
-    });
-    console.log(`Sent direct message to user ${userId}`);
-  } catch (error) {
-    console.error(`Error sending direct message to user ${userId}:`, error.response?.data || error.message);
-  }
-}
-
 async function handleMentionNotification(notification) {
-  const mentionText = notification.note.text.toLowerCase();
-  const userId = notification.user.id;
-  const username = notification.user.username;
-
-  console.log(`Processing mention from ${username} (ID: ${userId}): "${mentionText}"`);
-
-  // Extract the actual command by removing the bot's mention
-  const botUsername = 'gimmecats'; // Replace with your bot's actual username
-  const command = mentionText.replace(`@${botUsername}`, '').trim();
-
-  console.log(`Extracted command: "${command}"`);
-
-  if (command.includes('subscribe') || command.includes('sub') || command.includes('join')) {
-    console.log('Handling subscription request');
-    await addSubscriber(userId);
-    await barkleAxios.post('notes/create', {
-      text: `@${username} You've been subscribed to hourly cat posts!`,
-      visibility: 'public',
-      channelId: CHANNEL_ID,
-      replyId: notification.note.id
-    });
-  } else if (command.includes('unsubscribe') || command.includes('unsub') || command.includes('leave')) {
-    console.log('Handling unsubscription request');
-    await removeSubscriber(userId);
-    await barkleAxios.post('notes/create', {
-      text: `@${username} You've been unsubscribed from hourly cat posts.`,
-      visibility: 'public',
-      channelId: CHANNEL_ID,
-      replyId: notification.note.id
-    });
-  } else if (command.includes('gimme')) {
-    console.log('Handling "gimme" request');
-    const catImageUrl = await getCatImage();
-    if (catImageUrl) {
-      const randomText = await getRandomText();
-      await postToBarkle(catImageUrl, notification.note.id, `@${username} ${randomText}`);
+    const mentionText = notification.note.text.toLowerCase();
+    const username = notification.user.username;
+  
+    console.log(`Processing mention from ${username}: "${mentionText}"`);
+  
+    // Extract the actual command by removing the bot's mention
+    const botUsername = 'gimmecats'; // Replace with your bot's actual username
+    const command = mentionText.replace(`@${botUsername}`, '').trim();
+  
+    console.log(`Extracted command: "${command}"`);
+  
+    if (command.includes('subscribe') || command.includes('sub') || command.includes('join')) {
+      console.log('Handling subscription request');
+      await addSubscriber(username);
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You've been subscribed to hourly cat posts!`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id,
+        barkleFor: BarkleFor
+      });
+    } else if (command.includes('unsubscribe') || command.includes('unsub') || command.includes('leave')) {
+      console.log('Handling unsubscription request');
+      await removeSubscriber(username);
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You've been unsubscribed from hourly cat posts.`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id,
+        barkleFor: BarkleFor
+      });
+    } else if (command.includes('gimme')) {
+      console.log('Handling "gimme" request');
+      const catImageUrl = await getCatImage();
+      if (catImageUrl) {
+        const randomText = await getRandomText();
+        await postToBarkle(catImageUrl, notification.note.id, `@${username} ${randomText}`);
+      }
+    } else {
+      console.log('No specific action taken for this mention');
+      // Optionally, you can respond with help text here
+      await barkleAxios.post('notes/create', {
+        text: `@${username} You can use 'subscribe' to get hourly cats, 'unsubscribe' to stop, or 'gimme' for an immediate cat!`,
+        visibility: 'public',
+        channelId: CHANNEL_ID,
+        replyId: notification.note.id
+      });
     }
-  } else {
-    console.log('No specific action taken for this mention');
-    // Optionally, you can respond with help text here
-    await barkleAxios.post('notes/create', {
-      text: `@${username} You can use 'subscribe' to get hourly cats, 'unsubscribe' to stop, or 'gimme' for an immediate cat!`,
-      visibility: 'public',
-      channelId: CHANNEL_ID,
-      replyId: notification.note.id
-    });
   }
-}
 
 async function checkNotifications() {
   try {
@@ -247,40 +234,17 @@ async function checkNotifications() {
 }
 
 async function postHourlyCat() {
-  console.log('Posting hourly cat');
-  try {
-    const catImageUrl = await getCatImage();
-    if (!catImageUrl) {
-      throw new Error('Failed to get a cat image URL');
-    }
-
+  const catImageUrl = await getCatImage();
+  if (catImageUrl) {
     const randomText = await getRandomText();
-    const postResponse = await postToBarkle(catImageUrl, null, randomText);
+    const response = await postToBarkle(catImageUrl, null, randomText);
     
-    if (!postResponse || !postResponse.createdNote || !postResponse.createdNote.id) {
-      throw new Error('Failed to get note ID from the cat post response');
-    }
-
-    const noteId = postResponse.createdNote.id;
-    console.log('Cat post successful, ID:', noteId);
-
-    // Send direct messages to subscribers
+    // Mention subscribers in a reply
     const subscribers = await readSubscriberList();
     if (subscribers.length > 0) {
-      const noteUrl = `https://barkle.chat/notes/${noteId}`;
-      const message = `Here's your subscribed cat post! ${noteUrl}`;
-      
-      for (const subscriberId of subscribers) {
-        await sendDirectMessage(subscriberId, message);
-        // Add a delay of 1 second between messages
-        await delay(1000);
-      }
-      console.log(`Sent direct messages to ${subscribers.length} subscribers`);
-    } else {
-      console.log('No subscribers to notify');
+      const mentionText = subscribers.map(sub => `@${sub}`).join(' ') + ' Here\'s your subscribed cat post!';
+      await postToBarkle(null, response.data.id, mentionText);
     }
-  } catch (error) {
-    console.error('Error in postHourlyCat:', error);
   }
 }
 
@@ -291,10 +255,3 @@ cron.schedule('0 * * * *', postHourlyCat);
 setInterval(checkNotifications, 15000);
 
 console.log('Cat Barkle Bot is running!');
-
-console.log('Initiating first cat post...');
-postHourlyCat().then(() => {
-  console.log('First cat post completed');
-}).catch((error) => {
-  console.error('Error in first cat post:', error);
-});
